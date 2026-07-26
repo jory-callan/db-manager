@@ -1,0 +1,89 @@
+# ===== datatrip K8s 部署配置文件 =====
+# 用于 helm upgrade --install
+
+image:
+  backend:
+    repository: 192.168.5.103:5001/datatrip-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  web:
+    repository: 192.168.5.103:5001/datatrip-web
+    tag: latest
+    pullPolicy: IfNotPresent
+
+service:
+  backend:
+    type: ClusterIP
+    port: 8080
+  web:
+    type: ClusterIP
+    port: 80
+
+ingress:
+  enabled: true
+  host: xxx.czw-sre.internel
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: false
+
+jwt:
+  secret: "datatrip-k8s-deploy-2026"
+  expires: "24h"
+
+http:
+  corsOrigins: "*"
+
+log:
+  level: info
+  format: json
+
+# SQLite 模式
+sqlite:
+  enabled: true
+  existingPvc: ""
+
+postgres:
+  enabled: false
+
+resources:
+  backend:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  web:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+replicaCount:
+  backend: 1
+  web: 1
+
+probes:
+  backend:
+    enabled: true
+    path: /api/v1/health
+    initialDelaySeconds: 15
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+persistence:
+  backend:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+  logs:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+nameOverride: ""
+fullnameOverride: ""
