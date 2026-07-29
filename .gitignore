@@ -25,3 +25,5 @@ dist/
 src/**/*.tsbuildinfo
 node_modules/.tmp/
 
+*.db-shm
+*.db-wal

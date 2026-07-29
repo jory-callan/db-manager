@@ -1,5 +1,6 @@
 -- 必备数据：默认角色-权限码关联。
 -- 幂等规则：role_id + permission_id 组合已存在时不覆盖。
+-- 标准化动作：view / add / edit / delete / execute（详见 003_permissions.sql）。
 
 -- ====== platform_admin → * ======
 INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
@@ -20,11 +21,11 @@ AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
 
--- db:project:create
+-- db:project:add
 INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
 SELECT '000000000000000000000000000000a2', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM sys_role r, sys_permission p
-WHERE r.code = 'sql_admin' AND p.code = 'db:project:create'
+WHERE r.code = 'sql_admin' AND p.code = 'db:project:add'
 AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
@@ -47,11 +48,11 @@ AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
 
--- db:project:execute_sql
+-- db:project:execute
 INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
 SELECT '000000000000000000000000000000a5', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM sys_role r, sys_permission p
-WHERE r.code = 'sql_admin' AND p.code = 'db:project:execute_sql'
+WHERE r.code = 'sql_admin' AND p.code = 'db:project:execute'
 AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
@@ -83,11 +84,11 @@ AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
 
--- db:datasource:create
+-- db:datasource:add
 INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
 SELECT '000000000000000000000000000000a9', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM sys_role r, sys_permission p
-WHERE r.code = 'sql_admin' AND p.code = 'db:datasource:create'
+WHERE r.code = 'sql_admin' AND p.code = 'db:datasource:add'
 AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
@@ -119,11 +120,11 @@ AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
 
--- db:rule:create
+-- db:rule:add
 INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
 SELECT '000000000000000000000000000000ad', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM sys_role r, sys_permission p
-WHERE r.code = 'sql_admin' AND p.code = 'db:rule:create'
+WHERE r.code = 'sql_admin' AND p.code = 'db:rule:add'
 AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
@@ -133,6 +134,15 @@ INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated
 SELECT '000000000000000000000000000000ae', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM sys_role r, sys_permission p
 WHERE r.code = 'sql_admin' AND p.code = 'db:rule:edit'
+AND NOT EXISTS (
+    SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
+);
+
+-- db:rule:delete
+INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
+SELECT '000000000000000000000000000000b1', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM sys_role r, sys_permission p
+WHERE r.code = 'sql_admin' AND p.code = 'db:rule:delete'
 AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
@@ -165,11 +175,11 @@ AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );
 
--- db:project:execute_sql
+-- db:project:execute
 INSERT INTO sys_role_permission (id, role_id, permission_id, created_at, updated_at)
 SELECT '000000000000000000000000000000c2', r.id, p.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM sys_role r, sys_permission p
-WHERE r.code = 'sql_dev' AND p.code = 'db:project:execute_sql'
+WHERE r.code = 'sql_dev' AND p.code = 'db:project:execute'
 AND NOT EXISTS (
     SELECT 1 FROM sys_role_permission rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
 );

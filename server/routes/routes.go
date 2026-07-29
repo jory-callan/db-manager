@@ -79,8 +79,8 @@ func Register(e *echo.Echo) {
 	ds.GET("", datasource.NewHandler().List)
 	ds.GET("/:id", datasource.NewHandler().Get)
 
-	dsCreate := protected.Group("/datasources", auth.RequirePermission("db:datasource:create"))
-	dsCreate.POST("", datasource.NewHandler().Create)
+	dsAdd := protected.Group("/datasources", auth.RequirePermission("db:datasource:add"))
+	dsAdd.POST("", datasource.NewHandler().Create)
 
 	dsEdit := protected.Group("/datasources", auth.RequirePermission("db:datasource:edit"))
 	dsEdit.PUT("/:id", datasource.NewHandler().Update)
@@ -99,8 +99,8 @@ func Register(e *echo.Echo) {
 	proj.GET("/:id", project.NewHandler().Get)
 	proj.GET("/:id/members", project.NewHandler().ListMembers)
 
-	projCreate := protected.Group("/projects", auth.RequirePermission("db:project:create"))
-	projCreate.POST("", project.NewHandler().Create)
+	projAdd := protected.Group("/projects", auth.RequirePermission("db:project:add"))
+	projAdd.POST("", project.NewHandler().Create)
 
 	projEdit := protected.Group("/projects", auth.RequirePermission("db:project:edit"))
 	projEdit.PUT("/:id", project.NewHandler().Update)
@@ -115,13 +115,13 @@ func Register(e *echo.Echo) {
 	rule.Use(auth.RequirePermission("db:rule:view"))
 	rule.GET("", dsrule.NewHandler().List)
 
-	ruleWrite := protected.Group("/datasource-rules", auth.RequirePermission("db:rule:create"))
-	ruleWrite.POST("", dsrule.NewHandler().Create)
+	ruleAdd := protected.Group("/datasource-rules", auth.RequirePermission("db:rule:add"))
+	ruleAdd.POST("", dsrule.NewHandler().Create)
 
 	ruleEdit := protected.Group("/datasource-rules", auth.RequirePermission("db:rule:edit"))
 	ruleEdit.PUT("/:id", dsrule.NewHandler().Update)
 
-	ruleDelete := protected.Group("/datasource-rules", auth.RequirePermission("db:rule:manage"))
+	ruleDelete := protected.Group("/datasource-rules", auth.RequirePermission("db:rule:delete"))
 	ruleDelete.DELETE("/:id", dsrule.NewHandler().Delete)
 	ruleDelete.POST("/batch-delete", dsrule.NewHandler().BatchDelete)
 

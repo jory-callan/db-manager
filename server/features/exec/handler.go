@@ -1,7 +1,7 @@
 package exec
 
 import (
-	"strings"
+	"errors"
 
 	"czwlinux.cloud/go-friday-starter/global"
 	"czwlinux.cloud/go-friday-starter/pkg/httpx"
@@ -14,6 +14,63 @@ type Handler struct{}
 
 func NewHandler() *Handler {
 	return &Handler{}
+}
+
+// mapErrToHTTP maps service-layer sentinel errors to HTTP status + message.
+// Single source of truth: any new sentinel error in errors.go must be classified here.
+//
+// Categories:
+//   - 400: client / input errors
+//   - 403: business rejection (write rejected, dangerous, etc.)
+//   - 404: resource not found
+//   - 500: any unclassified error
+func mapErrToHTTP(c echo.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	// 400 — invalid request
+	case errors.Is(err, ErrInvalidParam),
+		errors.Is(err, ErrDatabaseNotAllowed),
+		errors.Is(err, ErrUnsupportedType),
+		errors.Is(err, ErrQueryFailed),
+		errors.Is(err, ErrScanRowsFailed),
+		errors.Is(err, ErrRedisCommandFailed),
+		errors.Is(err, ErrMongoCommandFailed),
+		errors.Is(err, ErrMongoDecodeFailed),
+		errors.Is(err, ErrESRequestFailed),
+		errors.Is(err, ErrSelectDBFailed),
+		errors.Is(err, ErrGetDBConnection),
+		errors.Is(err, ErrExecutionFailed),
+		errors.Is(err, ErrClassifyFailed),
+		errors.Is(err, ErrCheckEscalation),
+		errors.Is(err, ErrRedisEscalatedNotSup):
+		return response.BadRequest(c, err.Error())
+
+	// 404 — resource not found
+	case errors.Is(err, ErrProjectNotFound),
+		errors.Is(err, ErrDatasourceNotFound):
+		return response.NotFound(c, err.Error())
+
+	// 403 — business rejection
+	case errors.Is(err, ErrNoProjectAccess),
+		errors.Is(err, ErrDangerous),
+		errors.Is(err, ErrUnknown),
+		errors.Is(err, ErrWriteRejected),
+		errors.Is(err, ErrNoActiveEscalation):
+		return response.Forbidden(c, err.Error())
+	}
+
+	// Unclassified — log with context, return 500
+	requestID := ""
+	if c.Response() != nil {
+		requestID = c.Response().Header().Get(echo.HeaderXRequestID)
+	}
+	global.Log.Warn("exec: unclassified error",
+		zap.String("request_id", requestID),
+		zap.Error(err))
+	return response.InternalError(c, "internal error")
 }
 
 func (h *Handler) Execute(c echo.Context) error {
@@ -29,31 +86,7 @@ func (h *Handler) Execute(c echo.Context) error {
 
 	result, err := Execute(c.Request().Context(), userID, req)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid param") {
-			return response.BadRequest(c, errMsg)
-		}
-		if strings.Contains(errMsg, "not found") {
-			return response.NotFound(c, errMsg)
-		}
-		if strings.Contains(errMsg, "forbidden") {
-			return response.Forbidden(c, errMsg)
-		}
-		if strings.Contains(errMsg, "dangerous") {
-			return response.Forbidden(c, errMsg)
-		}
-		if strings.Contains(errMsg, "rejected") || strings.Contains(errMsg, "unrecognizable") || strings.Contains(errMsg, "拒绝") {
-			return response.Forbidden(c, errMsg)
-		}
-		// 执行错误（SQL 语法错误、Redis 命令错误等）— 返回 400 + 数据库原始错误，不是 500
-		if strings.Contains(errMsg, "query failed") ||
-			strings.Contains(errMsg, "redis command failed") ||
-			strings.Contains(errMsg, "mongo command failed") ||
-			strings.Contains(errMsg, "es request") {
-			return response.BadRequest(c, errMsg)
-		}
-		global.Log.Warn("execute: unhandled error", zap.String("request_id", c.Response().Header().Get("X-Request-ID")), zap.String("error", errMsg))
-		return response.InternalError(c, "internal error")
+		return mapErrToHTTP(c, err)
 	}
 
 	return response.Ok(c, result)
@@ -72,31 +105,7 @@ func (h *Handler) ExecuteEscalated(c echo.Context) error {
 
 	result, err := ExecuteEscalated(c.Request().Context(), userID, req)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid param") {
-			return response.BadRequest(c, errMsg)
-		}
-		if strings.Contains(errMsg, "not found") {
-			return response.NotFound(c, errMsg)
-		}
-		if strings.Contains(errMsg, "forbidden") {
-			return response.Forbidden(c, errMsg)
-		}
-		if strings.Contains(errMsg, "dangerous") {
-			return response.Forbidden(c, errMsg)
-		}
-		if strings.Contains(errMsg, "提权") {
-			return response.Forbidden(c, errMsg)
-		}
-		// 执行错误（SQL 语法错误等）— 返回 400 + 原始错误
-		if strings.Contains(errMsg, "execution failed") ||
-			strings.Contains(errMsg, "redis command failed") ||
-			strings.Contains(errMsg, "mongo command failed") ||
-			strings.Contains(errMsg, "es request") {
-			return response.BadRequest(c, errMsg)
-		}
-		global.Log.Warn("execute_escalated: unhandled error", zap.String("request_id", c.Response().Header().Get("X-Request-ID")), zap.String("error", errMsg))
-		return response.InternalError(c, "internal error")
+		return mapErrToHTTP(c, err)
 	}
 
 	return response.Ok(c, result)

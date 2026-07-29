@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -112,10 +113,17 @@ func ErrorHandler(log *logger.Logger) echo.HTTPErrorHandler {
 			return
 		}
 
+		if errors.Is(err, context.Canceled) {
+			_ = response.Error(c, 499, "client closed request")
+			return
+		}
+
 		requestID := c.Response().Header().Get(echo.HeaderXRequestID)
 		if log != nil {
 			log.Error("http internal error", zap.String("request_id", requestID), zap.Error(err))
 		}
+
+		// 直接用 errors.New("xxx") 的文本
 		_ = response.InternalError(c, "internal error")
 	}
 }

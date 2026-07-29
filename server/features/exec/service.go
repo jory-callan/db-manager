@@ -39,7 +39,7 @@ func newPipeline() *pipeline.Pipeline {
 
 func Execute(ctx context.Context, userID string, req ExecuteRequest) (any, error) {
 	if req.ProjectID == "" || req.Sql == "" {
-		return nil, fmt.Errorf("invalid param")
+		return nil, fmt.Errorf("%w: project_id and sql are required", ErrInvalidParam)
 	}
 
 	sqlToExecute := req.Sql
@@ -49,19 +49,19 @@ func Execute(ctx context.Context, userID string, req ExecuteRequest) (any, error
 
 	proj, err := project.GetByID(ctx, req.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("project not found")
+		return nil, fmt.Errorf("%w: %s", ErrProjectNotFound, req.ProjectID)
 	}
 
 	codes, _ := auth.GetUserPermissionCodes(ctx, userID)
 	if !project.HasProjectAccess(ctx, userID, req.ProjectID, codes) {
-		return nil, fmt.Errorf("forbidden: no project access")
+		return nil, ErrNoProjectAccess
 	}
 
 	projDatabases := project.SplitDatabases(proj.Scope)
 	dbName := req.Database
 	if dbName != "" {
 		if !project.IsDatabaseAllowed(projDatabases, dbName) {
-			return nil, fmt.Errorf("database '%s' is not in the project's allowed databases", dbName)
+			return nil, fmt.Errorf("%w: %s", ErrDatabaseNotAllowed, dbName)
 		}
 	} else if len(projDatabases) == 1 && !project.HasWildcard(projDatabases) {
 		dbName = projDatabases[0]
@@ -69,14 +69,14 @@ func Execute(ctx context.Context, userID string, req ExecuteRequest) (any, error
 
 	ds, err := datasource.GetByID(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("datasource not found")
+		return nil, fmt.Errorf("%w: %s", ErrDatasourceNotFound, proj.DatasourceID)
 	}
 
 	// Pipeline classify
 	pipe := newPipeline()
 	classifyResult, err := pipe.Classify(ctx, ds.Type, ds.TypeGroup, req.Sql, userID)
 	if err != nil {
-		return nil, fmt.Errorf("classify failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrClassifyFailed, err)
 	}
 
 	sum := classifyResult.Summary
@@ -84,19 +84,19 @@ func Execute(ctx context.Context, userID string, req ExecuteRequest) (any, error
 	// Reject dangerous
 	if sum.HasDangerous {
 		auditLog(ctx, userID, proj, ds, "execute", "dangerous", audit.StatusRejected, sqlToExecute, "dangerous operation rejected", 0, classifyResult)
-		return nil, fmt.Errorf("dangerous operation rejected: not allowed")
+		return nil, ErrDangerous
 	}
 
 	// Reject unknown
 	if sum.HasUnknown {
 		auditLog(ctx, userID, proj, ds, "execute", "unknown", audit.StatusRejected, sqlToExecute, "unrecognizable statement", 0, classifyResult)
-		return nil, fmt.Errorf("unrecognizable statement")
+		return nil, ErrUnknown
 	}
 
 	// Check write — reject if not escalated
 	if sum.HasWrite {
 		auditLog(ctx, userID, proj, ds, "execute", "write", audit.StatusRejected, sqlToExecute, "write operation rejected", 0, classifyResult)
-		return nil, fmt.Errorf("写操作已拒绝：请使用「提交工单」或「提权执行」按钮")
+		return nil, fmt.Errorf("%w: 请使用「提交工单」或「提权执行」按钮", ErrWriteRejected)
 	}
 
 	// All read — execute based on type group
@@ -113,7 +113,7 @@ func Execute(ctx context.Context, userID string, req ExecuteRequest) (any, error
 func executeSQLRead(ctx context.Context, userID string, proj *project.DataProject, ds *datasource.Datasource, dbName, sqlToExecute string, classifyResult *pipeline.ClassifyResult) (any, error) {
 	pool, err := dbpool.Get(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("get db connection failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGetDBConnection, err)
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
@@ -121,11 +121,11 @@ func executeSQLRead(ctx context.Context, userID string, proj *project.DataProjec
 
 	sqlConn, err := driver.GetSQLConnector(ds.Type)
 	if err != nil {
-		return nil, fmt.Errorf("unsupported datasource type: %s", ds.Type)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedType, ds.Type)
 	}
 	if dbName != "" {
 		if err := sqlConn.SetDatabase(execCtx, pool, dbName); err != nil {
-			return nil, fmt.Errorf("select database '%s' failed: %w", dbName, err)
+			return nil, fmt.Errorf("%w: %s: %w", ErrSelectDBFailed, dbName, err)
 		}
 	}
 
@@ -146,12 +146,12 @@ func executeSQLRead(ctx context.Context, userID string, proj *project.DataProjec
 			}
 			_ = CreateExecution(ctx, exec)
 			auditLog(ctx, userID, proj, ds, "execute", "read", audit.StatusFailed, sqlToExecute, err.Error(), duration, classifyResult)
-			return nil, fmt.Errorf("query failed: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrQueryFailed, err)
 		}
 
 		cols, resultRows, scanErr := driver.ScanRows(rows, maxResultRows-totalRows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("scan rows failed: %w", scanErr)
+			return nil, fmt.Errorf("%w: %w", ErrScanRowsFailed, scanErr)
 		}
 
 		allResults = append(allResults, QueryResult{
@@ -184,7 +184,7 @@ func executeSQLRead(ctx context.Context, userID string, proj *project.DataProjec
 func executeRedisRead(ctx context.Context, userID string, proj *project.DataProject, ds *datasource.Datasource, sqlToExecute string, classifyResult *pipeline.ClassifyResult) (any, error) {
 	client, err := dbpool.GetRedis(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("get redis connection failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGetDBConnection, err)
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
@@ -204,7 +204,7 @@ func executeRedisRead(ctx context.Context, userID string, proj *project.DataProj
 		if cmd.Err() != nil {
 			duration := int(time.Since(start).Milliseconds())
 			auditLog(ctx, userID, proj, ds, "execute", "redis", audit.StatusFailed, sqlToExecute, cmd.Err().Error(), duration, classifyResult)
-			return nil, fmt.Errorf("redis command failed: %w", cmd.Err())
+			return nil, fmt.Errorf("%w: %w", ErrRedisCommandFailed, cmd.Err())
 		}
 
 		val := cmd.Val()
@@ -258,14 +258,14 @@ func executeNoSQLRead(ctx context.Context, userID string, proj *project.DataProj
 	case "mongo":
 		return executeMongoRead(ctx, userID, proj, ds, sqlToExecute, classifyResult)
 	default:
-		return nil, fmt.Errorf("unsupported nosql type: %s", ds.Type)
+		return nil, fmt.Errorf("%w (nosql): %s", ErrUnsupportedType, ds.Type)
 	}
 }
 
 func executeMongoRead(ctx context.Context, userID string, proj *project.DataProject, ds *datasource.Datasource, sqlToExecute string, classifyResult *pipeline.ClassifyResult) (any, error) {
 	client, err := dbpool.GetMongo(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("get mongo connection failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGetDBConnection, err)
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
@@ -290,12 +290,12 @@ func executeMongoRead(ctx context.Context, userID string, proj *project.DataProj
 		if result.Err() != nil {
 			duration := int(time.Since(start).Milliseconds())
 			auditLog(ctx, userID, proj, ds, "execute", "mongo", audit.StatusFailed, sqlToExecute, result.Err().Error(), duration, classifyResult)
-			return nil, fmt.Errorf("mongo command failed: %w", result.Err())
+			return nil, fmt.Errorf("%w: %w", ErrMongoCommandFailed, result.Err())
 		}
 
 		var doc map[string]any
 		if err := result.Decode(&doc); err != nil {
-			return nil, fmt.Errorf("mongo decode result: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrMongoDecodeFailed, err)
 		}
 
 		var columns []driver.ColumnInfo
@@ -328,14 +328,14 @@ func executeSearchRead(ctx context.Context, userID string, proj *project.DataPro
 	case "es":
 		return executeESRead(ctx, userID, proj, ds, sqlToExecute, classifyResult)
 	default:
-		return nil, fmt.Errorf("unsupported search type: %s", ds.Type)
+		return nil, fmt.Errorf("%w (search): %s", ErrUnsupportedType, ds.Type)
 	}
 }
 
 func executeESRead(ctx context.Context, userID string, proj *project.DataProject, ds *datasource.Datasource, sqlToExecute string, classifyResult *pipeline.ClassifyResult) (any, error) {
 	client, err := dbpool.GetES(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("get es connection failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGetDBConnection, err)
 	}
 
 	start := time.Now()
@@ -367,7 +367,7 @@ func executeESRead(ctx context.Context, userID string, proj *project.DataProject
 		if reqErr != nil {
 			duration := int(time.Since(start).Milliseconds())
 			auditLog(ctx, userID, proj, ds, "execute", "es", audit.StatusFailed, sqlToExecute, reqErr.Error(), duration, classifyResult)
-			return nil, fmt.Errorf("es request create failed: %w", reqErr)
+			return nil, fmt.Errorf("%w: %w", ErrESRequestFailed, reqErr)
 		}
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
@@ -378,7 +378,7 @@ func executeESRead(ctx context.Context, userID string, proj *project.DataProject
 		if reqErr != nil {
 			duration := int(time.Since(start).Milliseconds())
 			auditLog(ctx, userID, proj, ds, "execute", "es", audit.StatusFailed, sqlToExecute, reqErr.Error(), duration, classifyResult)
-			return nil, fmt.Errorf("es request failed: %w", reqErr)
+			return nil, fmt.Errorf("%w: %w", ErrESRequestFailed, reqErr)
 		}
 		defer resp.Body.Close()
 
@@ -387,7 +387,7 @@ func executeESRead(ctx context.Context, userID string, proj *project.DataProject
 			errMsg := fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 			duration := int(time.Since(start).Milliseconds())
 			auditLog(ctx, userID, proj, ds, "execute", "es", audit.StatusFailed, sqlToExecute, errMsg, duration, classifyResult)
-			return nil, fmt.Errorf("es error: %s", errMsg)
+			return nil, fmt.Errorf("%w: %s", ErrESRequestFailed, errMsg)
 		}
 
 		columns := []driver.ColumnInfo{{Name: "result"}}
@@ -411,7 +411,7 @@ func executeESRead(ctx context.Context, userID string, proj *project.DataProject
 
 func ExecuteEscalated(ctx context.Context, userID string, req ExecuteRequest) (any, error) {
 	if req.ProjectID == "" || req.Sql == "" {
-		return nil, fmt.Errorf("invalid param")
+		return nil, fmt.Errorf("%w: project_id and sql are required", ErrInvalidParam)
 	}
 
 	sqlToExecute := req.Sql
@@ -421,19 +421,19 @@ func ExecuteEscalated(ctx context.Context, userID string, req ExecuteRequest) (a
 
 	proj, err := project.GetByID(ctx, req.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("project not found")
+		return nil, fmt.Errorf("%w: %s", ErrProjectNotFound, req.ProjectID)
 	}
 
 	codes, _ := auth.GetUserPermissionCodes(ctx, userID)
 	if !project.HasProjectAccess(ctx, userID, req.ProjectID, codes) {
-		return nil, fmt.Errorf("forbidden: no project access")
+		return nil, ErrNoProjectAccess
 	}
 
 	projDatabases := project.SplitDatabases(proj.Scope)
 	dbName := req.Database
 	if dbName != "" {
 		if !project.IsDatabaseAllowed(projDatabases, dbName) {
-			return nil, fmt.Errorf("database '%s' is not in the project's allowed databases", dbName)
+			return nil, fmt.Errorf("%w: %s", ErrDatabaseNotAllowed, dbName)
 		}
 	} else if len(projDatabases) == 1 && !project.HasWildcard(projDatabases) {
 		dbName = projDatabases[0]
@@ -441,46 +441,46 @@ func ExecuteEscalated(ctx context.Context, userID string, req ExecuteRequest) (a
 
 	ds, err := datasource.GetByID(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("datasource not found")
+		return nil, fmt.Errorf("%w: %s", ErrDatasourceNotFound, proj.DatasourceID)
 	}
 
 	if ds.Type == "redis" {
-		return nil, fmt.Errorf("redis escalated execution not yet supported")
+		return nil, ErrRedisEscalatedNotSup
 	}
 
 	pipe := newPipeline()
 	classifyResult, err := pipe.Classify(ctx, ds.Type, ds.TypeGroup, req.Sql, userID)
 	if err != nil {
-		return nil, fmt.Errorf("classify failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrClassifyFailed, err)
 	}
 
 	sum := classifyResult.Summary
 
 	if sum.HasDangerous {
 		auditLog(ctx, userID, proj, ds, "escalated_execute", "dangerous", audit.StatusRejected, sqlToExecute, "dangerous operation rejected", 0, classifyResult)
-		return nil, fmt.Errorf("dangerous operation rejected: not allowed")
+		return nil, ErrDangerous
 	}
 
 	if sum.HasUnknown {
 		auditLog(ctx, userID, proj, ds, "escalated_execute", "unknown", audit.StatusRejected, sqlToExecute, "unrecognizable statement", 0, classifyResult)
-		return nil, fmt.Errorf("unrecognizable statement")
+		return nil, ErrUnknown
 	}
 
 	// 超管（perm code: "*"）无需提权审批，直接执行
 	if !auth.HasPermission(codes, "*") {
 		activeResp, err := escalation.CheckActiveEscalation(ctx, userID, req.ProjectID)
 		if err != nil {
-			return nil, fmt.Errorf("check escalation failed: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrCheckEscalation, err)
 		}
 		if !activeResp.Active {
 			auditLog(ctx, userID, proj, ds, "escalated_execute", "write", audit.StatusRejected, sqlToExecute, "no active escalation", 0, classifyResult)
-			return nil, fmt.Errorf("提权执行失败：当前项目无有效提权，请先申请提权")
+			return nil, fmt.Errorf("%w: 当前项目无有效提权，请先申请提权", ErrNoActiveEscalation)
 		}
 	}
 
 	pool, err := dbpool.Get(ctx, proj.DatasourceID)
 	if err != nil {
-		return nil, fmt.Errorf("get db connection failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGetDBConnection, err)
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
@@ -488,11 +488,11 @@ func ExecuteEscalated(ctx context.Context, userID string, req ExecuteRequest) (a
 
 	sqlConn, err := driver.GetSQLConnector(ds.Type)
 	if err != nil {
-		return nil, fmt.Errorf("unsupported datasource type: %s", ds.Type)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedType, ds.Type)
 	}
 	if dbName != "" {
 		if err := sqlConn.SetDatabase(execCtx, pool, dbName); err != nil {
-			return nil, fmt.Errorf("select database '%s' failed: %w", dbName, err)
+			return nil, fmt.Errorf("%w: %s: %w", ErrSelectDBFailed, dbName, err)
 		}
 	}
 
@@ -539,7 +539,7 @@ func ExecuteEscalated(ctx context.Context, userID string, req ExecuteRequest) (a
 	auditLog(ctx, userID, proj, ds, "escalated_execute", "write", auditStatus, sqlToExecute, errMsg, duration, classifyResult)
 
 	if execErrStr != "" {
-		return nil, fmt.Errorf("execution failed: %s", execErrStr)
+		return nil, fmt.Errorf("%w: %s", ErrExecutionFailed, execErrStr)
 	}
 
 	return map[string]interface{}{

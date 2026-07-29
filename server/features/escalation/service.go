@@ -17,7 +17,7 @@ import (
 // CreateEscalation creates a new escalation request.
 func CreateEscalation(ctx context.Context, userID, projectID string, reason string) (*DTO, error) {
 	if projectID == "" || reason == "" {
-		return nil, fmt.Errorf("invalid param")
+		return nil, fmt.Errorf("%w: project_id and reason are required", ErrInvalidInput)
 	}
 
 	// Default: 1 year from now (approver can shorten on approval)
