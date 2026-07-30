@@ -1,10 +1,10 @@
-# Jerry DB Manager
+# DB Manager
 
 **Enterprise Data Operations Platform (DataOps)** — a unified data operation gateway with approval governance, audit trails, and full traceability across heterogeneous data sources.
 
 ## Overview
 
-Jerry DB Manager is not just another database management tool. It is a **unified data operation gateway + approval governance layer** designed for enterprise teams who need every data operation to go through approval, be audited, and remain traceable.
+DB Manager is not just another database management tool. It is a **unified data operation gateway + approval governance layer** designed for enterprise teams who need every data operation to go through approval, be audited, and remain traceable.
 
 The platform connects to a wide range of data sources — relational databases (MySQL, PostgreSQL), NoSQL (MongoDB, Elasticsearch), message queues, and in-memory stores (Redis) — providing a consistent SQL workbench, RBAC-based access control, escalation workflows, and comprehensive audit logging.
 
